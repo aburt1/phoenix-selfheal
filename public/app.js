@@ -182,7 +182,7 @@ function showAgentDock(issueNum, url) {
     const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.rel = 'noopener';
     a.className = 'dock-link'; a.textContent = 'view issue ↗'; row.appendChild(a);
   }
-  const sim = document.createElement('button'); sim.className = 'dock-sim'; sim.textContent = '▸ simulate locally';
+  const sim = document.createElement('button'); sim.className = 'dock-sim'; sim.textContent = '▸ diagnose now';
   sim.onclick = () => { fetch('/api/heal', { method: 'POST' }); removeDock(); };
   row.appendChild(sim);
   dock.append(t, hint, row);
