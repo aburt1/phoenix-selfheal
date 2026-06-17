@@ -3,21 +3,22 @@
 //
 // Zero npm dependencies. Pure Node built-ins so the demo never breaks on stage.
 //
-// The real loop:
-//   POST /api/login  → runs the LIVE auth rule (cache-busted import). If it throws,
-//                      it drives the pipeline over SSE: crash → telemetry (real DB
-//                      row) → GitHub issue (simulated) → [agent → patch → verify →
-//                      healed]. The patch REWRITES healer/login-rule.js on disk.
-//   POST /api/heal   → dispatches the agent manually (when auto-dispatch is off).
-//   POST /api/reset  → re-injects the fault (reverts the file) for a repeatable demo.
-//   GET  /events     → Server-Sent Events stream the whole show drives.
+// The real loop (semi-automatic — a human gates the commit):
+//   POST /api/login   → run the LIVE auth rule. On crash: crash → telemetry (real DB
+//                       row) → REAL GitHub issue, streamed over SSE.
+//   POST /api/heal    → agent diagnoses + PROPOSES: heals the working tree and
+//                       comments the patch on the issue. Does NOT commit.
+//   POST /api/commit  → the human commit gate: open a real PR with the fix.
+//   POST /api/cleanup → wipe all GitHub artifacts (issues, PRs, branches).
+//   POST /api/reset   → re-arm the fault (revert the file). Local only, instant.
+//   GET  /events      → Server-Sent Events stream the whole show drives.
 // ───────────────────────────────────────────────────────────────────────────
 
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, normalize } from 'node:path';
-import { githubConfigured, repoSlug, createIssue, listOpenSelfHeal, closeIssue, latestPr, ensureLabels } from './github.js';
+import { githubConfigured, repoSlug, createIssue, commentIssue, commitFix, cleanup, listOpenSelfHeal, latestPr, ensureLabels } from './github.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, 'public');
@@ -159,53 +160,62 @@ async function crashToIssue() {
   await sleep(900);
 }
 
-async function healSteps() {
+// The agent DIAGNOSES and PROPOSES a fix: it heals the running app (working tree)
+// and comments the patch on the issue — but does NOT commit. Committing is a human
+// decision, gated behind the dashboard's "Commit fix" button (semi-automatic).
+async function proposeFix() {
   const issue = lastIssue ?? ++issueCounter;
 
-  // 4 · AGENT WAKES
-  broadcast({ type: 'agent_boot', node: 'agent', issue,
-    log: `Phoenix Agent dispatched → issue #${issue}` });
+  // AGENT WAKES
+  broadcast({ type: 'agent_boot', node: 'agent', issue, log: `Phoenix Agent dispatched → issue #${issue}` });
   await sleep(750);
 
   const diagnosis = [
     'booting phoenix-agent runtime …',
-    'authenticating to issue tracker … ok',
     `pulling issue #${issue} — TypeError reading 'role'`,
     'reproducing failure locally … reproduced ✗',
-    'tracing stack → healer/login-rule.js:15',
+    'tracing stack → healer/login-rule.js',
     'reading source … `const role = user.account.role;`',
     'inspecting object shape … `user.account` is undefined',
-    'git blame → field flattened to `user.role` (refactor a1b2c3d)',
-    'root cause: stale field reference after schema refactor',
+    'root cause: field flattened to `user.role` in a refactor',
     'synthesizing patch …',
   ];
   for (const line of diagnosis) {
     broadcast({ type: 'agent_log', node: 'agent', line, log: line });
-    await sleep(360);
+    await sleep(340);
   }
-  await sleep(300);
+  await sleep(250);
 
-  // 5 · PATCH — rewrite the real file on disk
+  // PATCH — fix the live working tree (this heals the running app)
   const before = 'const role = user.account.role;';
   const after = 'const role = user.role;';
-  let text = await ruleText();
-  text = text.replace(BUG_LINE, FIXED_LINE);
-  await writeFile(RULE_FILE, text, 'utf8');
+  await writeFile(RULE_FILE, (await ruleText()).replace(BUG_LINE, FIXED_LINE), 'utf8');
   broadcast({ type: 'patch', node: 'patch', file: 'healer/login-rule.js', line: 15, before, after,
-    log: `patch applied → healer/login-rule.js:15` });
-  await sleep(1150);
+    log: `patch applied to working tree → healer/login-rule.js` });
+  await sleep(1000);
 
-  // 6 · VERIFY — actually re-run the patched code
+  // VERIFY — actually re-run the patched code
   let ok = false, token = null;
   try { const r = await runRule(); ok = r.ok; token = r.token; } catch { ok = false; }
   broadcast({ type: 'verify', node: 'patch', ok, token,
-    log: ok ? `re-ran auth suite — login verified, token ${token}` : 'verification FAILED' });
-  await sleep(850);
+    log: ok ? `re-ran auth — login verified, token ${token}` : 'verification FAILED' });
+  await sleep(700);
 
-  // 7 · HEALED
-  if (lastErrorId) updateErrorStatus(lastErrorId, 'RESOLVED');
-  broadcast({ type: 'healed', node: 'restored', issue, token, url: lastIssueUrl, prUrl: lastPrUrl,
-    log: `issue #${issue} resolved — system restored ✓` });
+  // COMMENT the proposed fix on the issue (no commit — that's the human's call)
+  if (githubConfigured() && lastIssueUrl) {
+    const comment = [
+      '🔧 **Phoenix agent — proposed fix**', '',
+      '```diff', `- ${before}`, `+ ${after}`, '```', '',
+      'Root cause: `user.account` was removed in a refactor, so `user.account.role` throws.',
+      'Applied to the running app and verified locally. Hit **Commit fix** on the dashboard to raise the PR.',
+    ].join('\n');
+    try { await commentIssue(issue, comment); } catch {}
+  }
+
+  // HEALED locally — fix proposed, awaiting commit
+  if (lastErrorId) updateErrorStatus(lastErrorId, 'PROPOSED');
+  broadcast({ type: 'healed', node: 'restored', issue, token, url: lastIssueUrl, committed: false,
+    log: `fix applied locally & commented on issue #${issue} — awaiting commit` });
 }
 
 // ── Request handlers ────────────────────────────────────────────────────────
@@ -224,7 +234,7 @@ async function doLogin({ autoHeal = true, speed = 1 } = {}) {
   (async () => {
     try {
       await crashToIssue();
-      if (autoHeal) { await sleep(600); await healSteps(); }
+      if (autoHeal) { await sleep(600); await proposeFix(); }
     } catch (e) {
       broadcast({ type: 'agent_log', node: 'agent', line: `orchestrator error: ${e.message}`, log: e.message });
     } finally {
@@ -234,40 +244,74 @@ async function doLogin({ autoHeal = true, speed = 1 } = {}) {
   return { accepted: true, healthy: false };
 }
 
+// Diagnose + propose the fix (heal locally, comment on the issue). No commit.
 async function doHeal() {
   if (running) return { accepted: false, reason: 'busy' };
   if (await isHealthy()) return { accepted: false, reason: 'already healthy' };
   running = true;
-  (async () => { try { await healSteps(); } finally { running = false; } })();
+  (async () => { try { await proposeFix(); } finally { running = false; } })();
   return { accepted: true };
 }
 
+// The human commit gate: actually open the PR with the fix.
+async function doCommit() {
+  if (running) return { accepted: false, reason: 'busy' };
+  if (!githubConfigured()) return { accepted: false, reason: 'no github' };
+  if (!lastIssue) return { accepted: false, reason: 'nothing to commit' };
+  running = true;
+  (async () => {
+    try {
+      broadcast({ type: 'agent_log', node: 'agent', line: `committing fix for issue #${lastIssue} …`, log: `committing fix for issue #${lastIssue}` });
+      const title = `fix(auth): resolve TypeError reading 'role' (#${lastIssue})`;
+      const body = [
+        `Closes #${lastIssue}`, '',
+        'Root cause: `user.account` was removed in a refactor; `user.account.role` throws.',
+        'Fix: read the flat field `user.role`.', '',
+        '— Committed from the Phoenix dashboard 🔥',
+      ].join('\n');
+      const pr = await commitFix({ issue: lastIssue, file: 'healer/login-rule.js', bugLine: BUG_LINE, fixedLine: FIXED_LINE, title, body });
+      lastPrUrl = pr.url;
+      if (lastErrorId) updateErrorStatus(lastErrorId, 'RESOLVED');
+      try { await commentIssue(lastIssue, `🚀 Fix committed — PR raised: ${pr.url}`); } catch {}
+      broadcast({ type: 'committed', node: 'agent', issue: lastIssue, url: lastIssueUrl, prUrl: pr.url,
+        log: `committed — PR raised ${pr.url}` });
+    } catch (e) {
+      broadcast({ type: 'agent_log', node: 'agent', line: `commit failed: ${e.message}`, log: `commit failed: ${e.message}` });
+    } finally {
+      running = false;
+    }
+  })();
+  return { accepted: true };
+}
+
+// Wipe every GitHub artifact so nothing sticks between demos.
+async function doCleanup() {
+  if (!githubConfigured()) return { accepted: false, reason: 'no github' };
+  broadcast({ type: 'agent_log', node: 'github', line: 'cleaning up GitHub artifacts …', log: 'cleanup started' });
+  const r = await cleanup();
+  lastPrUrl = null;
+  broadcast({ type: 'cleanup', node: 'github', result: r,
+    log: `cleanup done — closed ${r.issues} issue(s), ${r.prs} PR(s), deleted ${r.branches} branch(es)` });
+  return { accepted: true, ...r };
+}
+
+// Re-arm: revert the working tree to the buggy baseline. Local only → instant & reliable.
 async function doReset() {
   running = false;
-  let text = await ruleText();
-  text = text.replace(FIXED_LINE, BUG_LINE);
-  await writeFile(RULE_FILE, text, 'utf8');
-  lastPrUrl = null;
-  // best-effort: close any open self-heal issues so the repo stays tidy between runs
-  if (githubConfigured()) {
-    try {
-      const open = await listOpenSelfHeal();
-      for (const i of open) await closeIssue(i.number, '🔁 Re-armed for another demo run — closing.');
-    } catch {}
-  }
+  lastPrUrl = null; lastIssue = null; lastIssueUrl = null; lastErrorId = null;
+  await writeFile(RULE_FILE, (await ruleText()).replace(FIXED_LINE, BUG_LINE), 'utf8');
   broadcast({ type: 'reset', node: 'app', log: 'fault re-armed — login-rule.js reverted to buggy state' });
   return { ok: true };
 }
 
 // The /phoenix-heal skill streams its REAL progress here so the dashboard lights
 // up from the agent's actual work (boot → diagnose → patch → PR → healed).
-const AGENT_EVENTS = new Set(['agent_boot', 'agent_log', 'patch', 'verify', 'healed']);
+const AGENT_EVENTS = new Set(['agent_boot', 'agent_log', 'patch', 'verify', 'healed', 'committed']);
 function doAgentEvent(body) {
   if (!body || !AGENT_EVENTS.has(body.type)) return { accepted: false, reason: 'bad event type' };
-  if (body.type === 'healed') {
-    if (body.prUrl) lastPrUrl = body.prUrl;
-    if (lastErrorId) updateErrorStatus(lastErrorId, 'RESOLVED');
-  }
+  if (body.prUrl) lastPrUrl = body.prUrl;
+  if (body.issue) lastIssue = body.issue;
+  if (body.type === 'committed' && lastErrorId) updateErrorStatus(lastErrorId, 'RESOLVED');
   broadcast({ node: 'agent', ...body });
   return { accepted: true };
 }
@@ -335,6 +379,8 @@ const server = createServer(async (req, res) => {
 
   if (p === '/api/login' && req.method === 'POST') return sendJson(res, await doLogin(await readJsonBody(req)));
   if (p === '/api/heal' && req.method === 'POST') return sendJson(res, await doHeal());
+  if (p === '/api/commit' && req.method === 'POST') return sendJson(res, await doCommit());
+  if (p === '/api/cleanup' && req.method === 'POST') return sendJson(res, await doCleanup());
   if (p === '/api/reset' && req.method === 'POST') return sendJson(res, await doReset());
   if (p === '/api/agent-event' && req.method === 'POST') return sendJson(res, doAgentEvent(await readJsonBody(req)));
   if (p === '/api/github' && req.method === 'GET') return sendJson(res, await doGithub());

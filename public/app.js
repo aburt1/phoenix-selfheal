@@ -203,6 +203,17 @@ function setSuccessLinks(ev) {
   }
 }
 
+// The human commit gate: a button that actually opens the PR.
+function renderCommitGate(ev) {
+  const row = $('#commitRow'); row.replaceChildren();
+  if (ev.committed || ev.prUrl) return;
+  const btn = document.createElement('button');
+  btn.className = 'commit-btn';
+  btn.textContent = '⬆ COMMIT FIX → open PR';
+  btn.onclick = () => { btn.disabled = true; btn.textContent = 'committing…'; fetch('/api/commit', { method: 'POST' }); };
+  row.appendChild(btn);
+}
+
 // ═══ Event handlers ══════════════════════════════════════════════════════════
 const handlers = {
   hello(ev) {
@@ -226,15 +237,15 @@ const handlers = {
 
   telemetry(ev) {
     errCount++;
-    travel('app', 'db', NC.cyan, () => setNode('db', 'done', NC.cyan));
+    setNode('db', 'done', NC.cyan);
+    travel('app', 'db', NC.cyan);
     sfx.blip();
   },
 
   issue(ev) {
-    travel('db', 'github', NC.violet, () => {
-      setNode('github', 'done', NC.violet);
-      if (!$('#autoHeal').checked) showAgentDock(ev.issue, ev.url);
-    });
+    setNode('github', 'done', NC.violet);
+    travel('db', 'github', NC.violet);
+    if (!$('#autoHeal').checked) showAgentDock(ev.issue, ev.url);
     const fl = $('#faultLink'); fl.replaceChildren();
     if (ev.url) {
       const a = document.createElement('a'); a.href = ev.url; a.target = '_blank'; a.rel = 'noopener';
@@ -247,7 +258,8 @@ const handlers = {
   agent_boot(ev) {
     setStatus('healing');
     removeDock();
-    travel('github', 'agent', NC.amber, () => setNode('agent', 'active', NC.amber));
+    setNode('agent', 'active', NC.amber);
+    travel('github', 'agent', NC.amber);
     termReset(ev.issue);
     showView('terminal');
     sfx.boot();
@@ -256,7 +268,9 @@ const handlers = {
   agent_log(ev) { termLine(ev.line); sfx.tick(); },
 
   patch(ev) {
-    travel('agent', 'patch', NC.amber, () => setNode('patch', 'active', NC.amber));
+    setNode('agent', 'done', NC.amber);
+    setNode('patch', 'active', NC.amber);
+    travel('agent', 'patch', NC.amber);
     showDiff(ev.before, ev.after, `${ev.file}:${ev.line}`);
     sfx.patch();
   },
@@ -267,16 +281,34 @@ const handlers = {
   },
 
   healed(ev) {
-    travel('patch', 'restored', NC.green, () => {
-      setNode('restored', 'done', NC.green);
-      loopWire.classList.add('flow');
-      setTimeout(() => { loopWire.classList.remove('flow'); loopWire.classList.add('done'); setNode('app', 'done', NC.green); }, 700);
-    });
+    setNode('patch', 'done', NC.green);
+    setNode('restored', 'done', NC.green);
+    setNode('app', 'done', NC.green);
+    loopWire.classList.add('flow');
+    setTimeout(() => { loopWire.classList.remove('flow'); loopWire.classList.add('done'); }, 800);
+    travel('patch', 'restored', NC.green);
     $('#token').textContent = ev.token || '';
-    $('#okIssue').textContent = `#${ev.issue}`;
+    $('#okIssue').textContent = ev.issue ? `#${ev.issue}` : '';
+    $('#successSub').textContent = ev.committed
+      ? `system restored · issue #${ev.issue} closed`
+      : `fix applied & commented on issue #${ev.issue} · awaiting commit`;
     setSuccessLinks(ev);
+    renderCommitGate(ev);
     removeDock();
     setTimeout(() => { showView('success'); setStatus('online'); sfx.heal(); confetti(); }, 750);
+  },
+
+  committed(ev) {
+    $('#successSub').textContent = `committed · PR raised · issue #${ev.issue} closes on merge`;
+    setSuccessLinks(ev);
+    $('#commitRow').replaceChildren();
+    setStatus('online'); sfx.heal(); confetti();
+  },
+
+  cleanup(ev) {
+    $('#successLinks').replaceChildren();
+    $('#commitRow').replaceChildren();
+    sfx.blip();
   },
 
   login_ok(ev) {
@@ -319,6 +351,10 @@ function wireControls() {
     fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   };
   $('#reset').onclick = () => fetch('/api/reset', { method: 'POST' });
+  $('#cleanup').onclick = (e) => {
+    const b = e.currentTarget; b.disabled = true; const orig = b.textContent; b.textContent = 'cleaning…';
+    fetch('/api/cleanup', { method: 'POST' }).catch(() => {}).finally(() => setTimeout(() => { b.disabled = false; b.textContent = orig; }, 1400));
+  };
   $('#speed').oninput = (e) => { $('#speedVal').textContent = parseFloat(e.target.value).toFixed(1) + '×'; };
   $('#mute').onclick = (e) => {
     sfx.muted = !sfx.muted;

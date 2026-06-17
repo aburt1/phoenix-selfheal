@@ -360,6 +360,16 @@ main {
 .slink.pr { color: var(--green); border-color: rgba(43,255,176,.5); background: rgba(43,255,176,.1); }
 .slink:hover { box-shadow: 0 0 14px currentColor; filter: brightness(1.15); }
 
+.commit-row { margin-top: 18px; min-height: 8px; }
+.commit-btn {
+  font-family: var(--font-display); font-weight: 700; letter-spacing: 2px; font-size: 13px;
+  padding: 12px 22px; border-radius: 10px; cursor: pointer; color: #06120c;
+  background: linear-gradient(180deg, var(--green), #1fcf90); border: none; box-shadow: var(--glow-green);
+  transition: all .2s; animation: bob 1.2s ease-in-out infinite;
+}
+.commit-btn:hover { transform: translateY(-2px); box-shadow: 0 0 32px rgba(43,255,176,.7); }
+.commit-btn:disabled { opacity: .55; cursor: default; transform: none; animation: none; }
+
 /* ── Console ────────────────────────────────────────────────── */
 .console {
   position: relative; z-index: 5; height: 168px;

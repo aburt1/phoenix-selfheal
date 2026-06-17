@@ -41,7 +41,8 @@
         <b id="speedVal">1.0×</b>
       </label>
       <button class="iconbtn" id="mute" title="Mute sound">🔊</button>
-      <button class="btn ghost" id="reset">RE&#8209;ARM&nbsp;↺</button>
+      <button class="btn ghost" id="cleanup" title="Close all demo issues &amp; PRs and delete branches">CLEAN&nbsp;UP&nbsp;🧹</button>
+      <button class="btn ghost" id="reset" title="Re-arm the fault and run again">RE&#8209;ARM&nbsp;↺</button>
     </div>
   </header>
 
@@ -107,8 +108,9 @@
           <h2>ACCESS&nbsp;GRANTED</h2>
           <p class="welcome">welcome back, <b>ada.lovelace</b></p>
           <div class="token" id="token"></div>
-          <div class="success-sub">system restored · issue&nbsp;<span id="okIssue"></span>&nbsp;closed</div>
+          <div class="success-sub" id="successSub">system restored · issue&nbsp;<span id="okIssue"></span></div>
           <div class="success-links" id="successLinks"></div>
+          <div class="commit-row" id="commitRow"></div>
         </div>
 
       </div>
