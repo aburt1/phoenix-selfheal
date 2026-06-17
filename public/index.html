@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PHOENIX · Self-Heal Mission Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="scanline" aria-hidden="true"></div>
+
+  <!-- ── TOP BAR ─────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🔥</span>
+      <div class="brand-text">
+        <h1>PHOENIX</h1>
+        <p>SELF-HEAL MISSION CONTROL</p>
+      </div>
+    </div>
+
+    <div class="status" id="status" data-state="boot">
+      <span class="status-dot"></span>
+      <span class="status-text" id="statusText">INITIALIZING</span>
+    </div>
+
+    <div class="tools">
+      <a id="repoChip" class="repochip" target="_blank" rel="noopener" hidden></a>
+      <label class="toggle" title="Simulate the heal locally instead of running the real /phoenix-heal skill">
+        <input type="checkbox" id="autoHeal" />
+        <span class="toggle-track"><span class="toggle-knob"></span></span>
+        <span class="toggle-label">SIMULATE</span>
+      </label>
+      <label class="speed">
+        <span>SPEED</span>
+        <input type="range" id="speed" min="0.5" max="2" step="0.25" value="1" />
+        <b id="speedVal">1.0×</b>
+      </label>
+      <button class="iconbtn" id="mute" title="Mute sound">🔊</button>
+      <button class="btn ghost" id="reset">RE&#8209;ARM&nbsp;↺</button>
+    </div>
+  </header>
+
+  <!-- ── MAIN ────────────────────────────────────────────────── -->
+  <main>
+    <!-- LEFT: macro pipeline board -->
+    <section class="board-panel">
+      <div class="panel-tag">PIPELINE · LIVE</div>
+      <div id="board" class="board"></div>
+      <div class="board-legend">
+        <span><i style="--c:var(--cyan)"></i>data</span>
+        <span><i style="--c:var(--red)"></i>fault</span>
+        <span><i style="--c:var(--amber)"></i>agent</span>
+        <span><i style="--c:var(--green)"></i>healed</span>
+      </div>
+    </section>
+
+    <!-- RIGHT: the device the operator interacts with -->
+    <section class="device-panel">
+      <div class="panel-tag">PROD · login-service</div>
+      <div class="device" id="device">
+
+        <!-- LOGIN VIEW -->
+        <div class="view login" id="loginView">
+          <div class="login-card" id="loginCard">
+            <div class="login-emblem">🔐</div>
+            <h2>PHOENIX&nbsp;ACCESS</h2>
+            <p class="muted">operator authentication</p>
+            <label class="field">OPERATOR
+              <input id="user" value="ada.lovelace" readonly />
+            </label>
+            <label class="field">PASSPHRASE
+              <input id="pass" type="password" value="hunter2" readonly />
+            </label>
+            <button class="btn primary big" id="signin">SIGN&nbsp;IN&nbsp;▸</button>
+            <div class="fault" id="fault" hidden>
+              <div class="fault-title">⚠ AUTHENTICATION FAULT</div>
+              <div class="fault-msg" id="faultMsg"></div>
+              <pre class="fault-stack" id="faultStack"></pre>
+              <div class="fault-link" id="faultLink"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TERMINAL VIEW -->
+        <div class="view terminal" id="terminalView" hidden>
+          <div class="term-head">
+            <span class="term-dots"><i></i><i></i><i></i></span>
+            <span class="term-title" id="termTitle">phoenix-agent</span>
+            <span class="term-issue" id="termIssue"></span>
+          </div>
+          <div class="term-body" id="termBody"></div>
+          <div class="diff" id="diff" hidden>
+            <div class="diff-head" id="diffHead">healer/login-rule.js</div>
+            <div class="diff-row del" id="diffDel"></div>
+            <div class="diff-row add" id="diffAdd"></div>
+          </div>
+        </div>
+
+        <!-- SUCCESS VIEW -->
+        <div class="view success" id="successView" hidden>
+          <div class="success-ring"><div class="success-emblem">✓</div></div>
+          <h2>ACCESS&nbsp;GRANTED</h2>
+          <p class="welcome">welcome back, <b>ada.lovelace</b></p>
+          <div class="token" id="token"></div>
+          <div class="success-sub">system restored · issue&nbsp;<span id="okIssue"></span>&nbsp;closed</div>
+          <div class="success-links" id="successLinks"></div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ── LIVE TELEMETRY CONSOLE ──────────────────────────────── -->
+  <footer class="console">
+    <div class="console-head">
+      <span class="rec"></span> LIVE TELEMETRY
+      <span class="console-meta" id="consoleMeta">error_log · 0 events</span>
+    </div>
+    <div class="log" id="log"></div>
+  </footer>
+
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <script src="/app.js"></script>
+</body>
+</html>

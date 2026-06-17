@@ -1,0 +1,14 @@
+{
+  "name": "phoenix-selfheal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PHOENIX — a live demo of an agentic self-healing software loop: crash → telemetry → DB → GitHub issue → Claude agent → patch → restored.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
