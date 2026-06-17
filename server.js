@@ -147,8 +147,14 @@ async function crashToIssue() {
   let issueNum = issue, issueUrl = null, real = false;
   if (githubConfigured()) {
     try {
-      const created = await createIssue({ title: issueTitle, body: issueBody });
-      issueNum = created.number; issueUrl = created.url; real = true;
+      // Dedup: reuse an already-open self-heal issue instead of piling up duplicates.
+      const open = await listOpenSelfHeal();
+      if (open.length) {
+        issueNum = open[0].number; issueUrl = open[0].url; real = true;
+      } else {
+        const created = await createIssue({ title: issueTitle, body: issueBody });
+        issueNum = created.number; issueUrl = created.url; real = true;
+      }
     } catch (e) {
       broadcast({ type: 'agent_log', node: 'github', line: `github issue create failed: ${e.message}`, log: `github error: ${e.message}` });
     }
