@@ -14,7 +14,7 @@ export function authenticate(user, password) {
   }
 
   // Resolve the operator's access role for the session token.
-  const role = user.account.role;        // PHOENIX-BUG
+  const role = user.role;                // PHOENIX-FIXED
 
   return {
     ok: true,
